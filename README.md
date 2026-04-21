@@ -1,50 +1,69 @@
-# Calendar Agent
+# Google Calendar Voice Agent
 
-Google Calendar agent that **creates, searches, modifies, and deletes meetings, events, and tasks** from **natural language**, using the Gemini API and the Google Calendar and Tasks APIs. This repo includes a **Streamlit** UI and a Python module you can import from your own scripts.
+A conversational calendar assistant that understands **natural language and voice commands** to create, search, modify, and delete meetings, events, tasks, birthdays, and anniversaries in Google Calendar. Powered by the Google Gemini API, with a chat-style Streamlit UI and speech-to-text via OpenAI Whisper.
 
-**Repository:** [github.com/rgparekh/Calendar-Agent](https://github.com/rgparekh/Calendar-Agent)
+---
 
 ## Features
 
-- **Meetings** — calendar entries with one or more invited attendees (invites are sent via Google Calendar)
-- **Events** — personal calendar entries owned only by you, with no external attendees (e.g. focus blocks, appointments, reminders)
-- **Tasks** — to-do items managed via Google Tasks; no calendar time slot required
-- **Birthdays & Anniversaries** — yearly recurring all-day events with automatic email (15 minutes before) and pop-up (15 minutes before) reminders
-- **Notifications** — email and/or pop-up reminders for meetings and events, configurable to any number of minutes, hours, or days before the item
-- **Streamlit app** (`calendar_agent_ui.py`): home screen with upcoming events, create, search, modify, delete, and settings pages
-- **Agent logic** (`google_calendar_agent.py`): classifies each request by action (create / modify / delete) and item type (meeting / event / task / birthday / anniversary), then drives the appropriate Google API call via structured LLM output
-- OAuth **token refresh** with recovery if the refresh token is revoked (`invalid_grant`): stale `token.json` is removed and you sign in again
+### 🎤 Voice + Text Input
+Speak or type your command — both work identically. Click **Start Recording**, say what you want, click **Stop Recording**, and the assistant transcribes and executes your request. The transcription is powered by [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (Whisper medium model) running fully offline on your machine.
 
-## Natural Language Examples
+### 💬 Chat Interface
+All interactions happen in a single chat window. There are no separate Create / Modify / Delete pages — just describe what you want and the agent figures out the action automatically.
 
-Just describe what you want in plain English. The agent figures out whether it's a meeting, event, or task and takes the appropriate action.
+### 📅 Meetings
+Calendar events with one or more invited attendees. Google Calendar sends invitations to each attendee.
+
+### 🗓️ Personal Events
+Calendar entries owned only by you — focus blocks, appointments, all-day events, and anything else with no external attendees.
+
+### ✅ Tasks
+To-do items managed via Google Tasks. No time slot required.
+
+### 🎂 Birthdays & Anniversaries
+Yearly recurring all-day events. Created once, they repeat every year automatically on the same date. When you specify only a month and day, the agent schedules the next upcoming occurrence. Both types include default reminders:
+
+| Type | When |
+|------|------|
+| Email | 15 minutes before |
+| Pop-up | 15 minutes before |
+
+### 🔔 Notifications
+Email and pop-up reminders for meetings and events, configurable via the UI or inline in your command. Tasks do not support notifications via the Google API.
+
+---
+
+## Examples
+
+The agent understands intent automatically — you don't need to specify whether you're creating, modifying, or deleting; just describe what you want.
 
 ### Meetings
 
-| Intent | Example prompt |
-|--------|---------------|
-| Create | `Schedule a sync with Alice (alice@co.com) and Bob (bob@co.com) on Friday at 2 PM PT for 1 hour` |
+| Intent | Example |
+|--------|---------|
+| Create | `Schedule a sync with Alice (alice@co.com) and Bob (bob@co.com) on Friday at 2 PM for 1 hour` |
 | Create recurring | `Set up a weekly team standup every Monday at 9 AM with the team (team@co.com) for 30 minutes` |
 | Create with location | `Book a client dinner with Sarah (sarah@client.com) at Nobu on Thursday at 7 PM for 2 hours` |
 | Modify time | `Move the Friday sync with Alice to 3 PM` |
 | Add attendee | `Add Carol (carol@co.com) to the Monday standup` |
 | Delete | `Cancel the client dinner with Sarah on Thursday` |
 
-### Events
+### Personal Events
 
-| Intent | Example prompt |
-|--------|---------------|
-| Create | `Block my calendar for deep work on Monday from 9 AM to 12 PM PT` |
-| Create | `Add a dentist appointment on March 30 at 10 AM` |
-| Create all-day | `Add a personal day on April 4` |
-| Modify | `Change my dentist appointment to 11 AM` |
+| Intent | Example |
+|--------|---------|
+| Create | `Block my calendar for deep work on Monday from 9 AM to 12 PM` |
+| Create | `Add a dentist appointment on May 10 at 10 AM` |
+| Create all-day | `Add a personal day on Friday` |
+| Modify time | `Move my dentist appointment to 11 AM` |
 | Modify location | `Update my dentist appointment location to 123 Main St` |
 | Delete | `Remove the focus block on Monday morning` |
 
 ### Tasks
 
-| Intent | Example prompt |
-|--------|---------------|
+| Intent | Example |
+|--------|---------|
 | Create | `Add a task to submit the Q1 report by end of this week` |
 | Create | `Remind me to buy groceries` |
 | Create with due date | `Add a task to review the project proposal — due Friday` |
@@ -52,168 +71,158 @@ Just describe what you want in plain English. The agent figures out whether it's
 | Complete | `Mark the grocery task as completed` |
 | Delete | `Delete the task to review the project proposal` |
 
-### Birthdays & Anniversaries
+### Birthdays
 
-Birthday and anniversary events are created as **all-day events that repeat every year** on the same date. Both types automatically include two default reminders:
+The event is created as **"&lt;Name&gt;'s Birthday"**, repeating every year.
 
-| Reminder | When |
-|----------|------|
-| Email | 15 minutes before |
-| Pop-up | 15 minutes before |
-
-These reminders are always applied — no extra instructions needed in your prompt.
-
-#### Birthdays
-
-The summary is formatted as **"&lt;Name&gt;'s Birthday"**.
-
-| Example prompt |
-|----------------|
+| Example |
+|---------|
 | `Create Alice's birthday on June 15` |
 | `Add John Smith's birthday on March 3rd` |
 | `Set up a birthday for my mom on October 22` |
 
-#### Anniversaries
+### Anniversaries
 
-The summary is formatted as **"&lt;Name(s)&gt;'s &lt;Type&gt; Anniversary"**. The agent infers the type (wedding, work, etc.) from context, defaulting to "Anniversary" if unspecified.
+The event is created as **"&lt;Name(s)&gt;'s &lt;Type&gt; Anniversary"**, repeating every year. The agent infers the anniversary type from context.
 
-| Example prompt |
-|----------------|
+| Example |
+|---------|
 | `Add our wedding anniversary on July 4` |
 | `Create John and Jane's wedding anniversary on September 12` |
 | `Add Bob's work anniversary on January 15` |
 | `Create my parents' 30th anniversary on August 20` |
 
-#### How yearly recurrence works
-
-Both types use `RRULE:FREQ=YEARLY`, so they appear on the same calendar date every year without any additional configuration. You only need to create them once.
-
-> **Note:** Birthdays are stored with Google Calendar's native `birthday` event type, which means they appear with the birthday icon in the Google Calendar UI. Anniversaries are stored as standard all-day events.
-
 ### Notifications
 
-Notifications can be set when **creating or modifying a meeting or event**. Google Tasks does not support notifications via the API.
+Reminders can be set via the **🔔 Set reminders** panel in the UI, or described inline in your command:
 
-#### Via the Streamlit UI
+| Example |
+|---------|
+| `Schedule a dentist appointment on Friday at 10 AM — email me 1 day before` |
+| `Add a focus block Monday 9–12 PM with a pop-up reminder 15 minutes before` |
+| `Book a team sync with Alice (alice@co.com) tomorrow at 2 PM — email 1 day before and pop-up 30 minutes before` |
 
-On the **Create** or **Modify** page, expand the Notifications section beneath the description field:
-
-1. Check **Email notification** to receive an email reminder, and/or **Pop-up notification** for an on-screen alert.
-2. For each selected type, enter an amount and choose a unit — **minutes**, **hours**, or **days**.
-3. Multiple notification types can be combined (e.g. an email 1 day before and a pop-up 30 minutes before).
-
-#### Via natural language (CLI or UI description field)
-
-You can also describe reminders directly in your prompt. The agent extracts the notification details automatically:
-
-| Intent | Example prompt |
-|--------|---------------|
-| Email only | `Schedule a dentist appointment on Friday at 10 AM — email me 1 day before` |
-| Pop-up only | `Add a focus block Monday 9–12 PM with a pop-up reminder 15 minutes before` |
-| Both types | `Book a team sync with Alice (alice@co.com) tomorrow at 2 PM — email 1 day before and pop-up 30 minutes before` |
-| Modify reminders | `Add a pop-up reminder 1 hour before the Monday standup` |
-
-#### How notifications work
-
-| Setting | Delivered as |
-|---------|-------------|
-| Email | An email sent to the calendar owner's Google account address |
-| Pop-up | An alert shown in Google Calendar (web and mobile) |
-| Time before | Any value expressed in minutes; the UI converts hours and days automatically (1 hour = 60 min, 1 day = 1440 min) |
+---
 
 ## Requirements
 
-- Python 3.10+ (recommended)
+- Python 3.10+
 - A [Google Cloud](https://console.cloud.google.com/) project with:
   - **Google Calendar API** enabled
   - **Google Tasks API** enabled
-  - **OAuth consent screen** configured
-  - **OAuth 2.0 Client ID** of type **Desktop app** → download as `credentials.json`
-- A **Gemini API key** exposed as `GOOGLE_API_KEY` (used by `google_calendar_agent.py`)
+  - An **OAuth consent screen** configured
+  - An **OAuth 2.0 Client ID** of type **Desktop app** — download as `credentials.json`
+- A **Gemini API key** from [Google AI Studio](https://aistudio.google.com/app/apikey)
+- A microphone (for voice input)
+
+---
 
 ## Setup
 
-1. **Clone the repository**
-
-   ```bash
-   git clone https://github.com/rgparekh/Calendar-Agent.git
-   cd Calendar-Agent
-   ```
-
-2. **Create a virtual environment (recommended)**
-
-   ```bash
-   python3 -m venv .venv
-   source .venv/bin/activate   # Windows: .venv\Scripts\activate
-   ```
-
-3. **Install dependencies**
-
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **Add secrets locally (do not commit these)**
-
-   | File / variable | Purpose |
-   |-----------------|--------|
-   | `credentials.json` | OAuth client secret from Google Cloud Console (Desktop client) |
-   | `GOOGLE_API_KEY` | Gemini API key for the agent |
-
-   Create a `.env` file in the project root with the following contents:
-
-   ```env
-   # Gemini API key — required by google_calendar_agent.py
-   # Obtain from: https://aistudio.google.com/app/apikey
-   GOOGLE_API_KEY=your-gemini-api-key
-   ```
-
-   Then load it before starting the app:
-
-   ```bash
-   source .env          # bash/zsh (simple key=value format)
-   # or
-   export $(cat .env | grep -v '^#' | xargs)
-   ```
-
-   Alternatively, set it for the current shell only:
-
-   ```bash
-   export GOOGLE_API_KEY="your-gemini-api-key"
-   ```
-
-   The Streamlit UI also lets you paste the API key directly in the browser if the variable is unset.
-
-   > **Never commit `.env` or `credentials.json` to version control.** Both are listed in `.gitignore`.
-
-5. **Place `credentials.json`** in the project root (same directory as `calendar_agent_ui.py`).
-
-## Run the Streamlit UI
-
-From the project root:
+**1. Clone the repository**
 
 ```bash
-streamlit run calendar_agent_ui.py
+git clone https://github.com/YOUR_USERNAME/VoiceCalendarAgent.git
+cd VoiceCalendarAgent
 ```
 
-The first time you use Calendar access, a browser window opens for Google sign-in. Tokens are saved to `token.json` locally.
+**2. Create a virtual environment**
 
-## Project layout
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+**3. Install dependencies**
+
+```bash
+pip install -r requirements.txt
+```
+
+The first time you use voice input, the Whisper `medium` model weights (~460 MB) are downloaded automatically to your local cache. Subsequent runs are instant.
+
+**4. Configure secrets**
+
+Create a `.env` file in the project root:
+
+```env
+GOOGLE_API_KEY=your-gemini-api-key
+LLM_MODEL_NAME=gemini-2.5-flash
+```
+
+Load it before starting the app:
+
+```bash
+export $(cat .env | grep -v '^#' | xargs)
+```
+
+Place `credentials.json` (downloaded from Google Cloud Console) in the project root.
+
+> `.env` and `credentials.json` are listed in `.gitignore` and will never be committed.
+
+**5. Run the app**
+
+```bash
+streamlit run google_calendar_voice_agent_ui.py
+```
+
+A browser window opens. On first use, a Google sign-in prompt appears and `token.json` is saved locally for subsequent sessions.
+
+---
+
+## Using the App
+
+### Chat page (default)
+Type a command in the input box and press **➤**, or use voice:
+
+1. Click **🎤** to start recording
+2. Speak your command
+3. Click **⏹** to stop — the transcript appears in the input box
+4. Edit if needed, then press **➤** to send
+
+The **✕** button clears the current input without affecting chat history. Chat history can be cleared from the **Settings** page.
+
+### Upcoming Events page
+Shows your next 7 calendar events with title, time, location, and a direct link to Google Calendar.
+
+### Settings page
+- View the status of required files and environment variables
+- Clear the Google authentication token (forces re-login)
+- Clear the full chat history
+
+---
+
+## Project Layout
 
 | File | Role |
 |------|------|
-| `calendar_agent_ui.py` | Streamlit frontend and OAuth helper |
-| `google_calendar_agent.py` | Gemini client, models, and Calendar operations |
-| `google_calendar_events.py` | Lower-level Calendar helpers (optional / reference) |
+| `google_calendar_voice_agent_ui.py` | Streamlit chat UI, OAuth flow, voice recording widget |
+| `google_calendar_voice_agent.py` | Agent logic: LLM classification, routing, and Google API calls |
+| `voice_input.py` | Microphone recording (`sounddevice`) and Whisper transcription (`faster-whisper`) |
 | `requirements.txt` | Python dependencies |
-| `.gitignore` | Excludes `credentials.json`, `token.json`, `.env`, etc. |
+| `.gitignore` | Excludes secrets, tokens, and caches |
+
+---
 
 ## Troubleshooting
 
-- **`invalid_grant` / auth errors:** Delete `token.json` (or use **Settings → Clear Authentication Token** in the UI) and sign in again. Ensure `credentials.json` matches the OAuth client that originally issued the token.
-- **Missing API key:** Set `GOOGLE_API_KEY` before starting Streamlit, or enter it when the app prompts you.
-- **Scope changes:** If you change OAuth scopes in code (e.g. adding the Tasks scope), remove `token.json` and re-authorize.
+**`invalid_grant` / authentication errors**
+Delete `token.json` (or use **Settings → Clear Authentication Token**) and sign in again. Ensure `credentials.json` matches the OAuth client that originally issued the token.
+
+**Missing API key**
+Set `GOOGLE_API_KEY` before starting Streamlit, or enter it when the app prompts you on startup.
+
+**Microphone not detected**
+Ensure your system microphone permissions are granted for the terminal / Python process. On macOS: System Settings → Privacy & Security → Microphone.
+
+**Whisper model download is slow**
+The `medium` model (~460 MB) is downloaded once to `~/.cache/huggingface/`. After that, voice input works fully offline.
+
+**Scope changes**
+If you modify the OAuth scopes in code, delete `token.json` and re-authenticate.
+
+---
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE.md](LICENSE.md) for details.
+MIT License. See [LICENSE.md](LICENSE.md) for details.
