@@ -360,33 +360,35 @@ def show_chat_page(creds):
     # ── Input shell ─────────────────────────────────────────────────
     st.markdown('<div class="input-shell">', unsafe_allow_html=True)
 
-    input_key = "chat_input_text"
-    if input_key not in st.session_state:
-        st.session_state[input_key] = ""
+    input_key   = "_chat_textarea"
+    pending_key = "_chat_pending_text"   # written by button handlers, consumed below
+    rec_key     = "chat_recording"
+
+    if rec_key not in st.session_state:
+        st.session_state[rec_key] = False
+
+    # Consume any pending text written by the previous run's button handler
+    # BEFORE the widget is instantiated (Streamlit forbids mutating a widget's
+    # own key after instantiation).
+    if pending_key in st.session_state:
+        st.session_state[input_key] = st.session_state.pop(pending_key)
 
     user_text = st.text_area(
         label="chat_input",
         label_visibility="collapsed",
         placeholder="Type a command or click 🎤 to speak…",
-        value=st.session_state[input_key],
         height=80,
-        key="_chat_textarea",
+        key=input_key,
     )
 
     # ── Toolbar: clear · recording status · mic/stop · send ─────────
-    rec_key   = "chat_recording"
-    trans_key = "chat_transcript"
-    if rec_key   not in st.session_state: st.session_state[rec_key]   = False
-    if trans_key not in st.session_state: st.session_state[trans_key] = ""
-
     is_recording = st.session_state[rec_key]
 
     col_clear, col_recind, col_mic, col_send = st.columns([1, 3, 1, 1])
 
     with col_clear:
         if st.button("✕", help="Clear input", key="btn_clear", use_container_width=True):
-            st.session_state[input_key]  = ""
-            st.session_state[trans_key]  = ""
+            st.session_state[pending_key] = ""
             st.rerun()
 
     with col_recind:
@@ -402,8 +404,7 @@ def show_chat_page(creds):
         if not is_recording:
             if st.button("🎤", help="Start voice input", key="btn_mic", use_container_width=True):
                 vi.start_recording()
-                st.session_state[rec_key]   = True
-                st.session_state[trans_key] = ""
+                st.session_state[rec_key] = True
                 st.rerun()
         else:
             if st.button("⏹", help="Stop and transcribe", key="btn_stop", use_container_width=True):
@@ -411,8 +412,7 @@ def show_chat_page(creds):
                 st.session_state[rec_key] = False
                 with st.spinner("Transcribing…"):
                     transcript = vi.transcribe_audio(audio, sr)
-                st.session_state[trans_key] = transcript
-                st.session_state[input_key] = transcript
+                st.session_state[pending_key] = transcript
                 st.rerun()
 
     with col_send:
@@ -423,15 +423,10 @@ def show_chat_page(creds):
             final_text = user_text.strip()
             if final_text:
                 _handle_submit(creds, final_text, st.session_state.get("_reminders"))
-                st.session_state[input_key]  = ""
-                st.session_state[trans_key]  = ""
+                st.session_state[pending_key] = ""
                 st.rerun()
 
     st.markdown('</div>', unsafe_allow_html=True)
-
-    # Sync textarea edits back into session_state so the value persists
-    if user_text != st.session_state[input_key]:
-        st.session_state[input_key] = user_text
 
 
 def show_home_page(creds):
