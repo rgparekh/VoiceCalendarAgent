@@ -244,14 +244,14 @@ def _notification_controls(key_prefix: str) -> Optional[dict]:
     with col1:
         if st.checkbox("Email reminder", key=f"{key_prefix}_email_on"):
             c1, c2 = st.columns([1, 1])
-            amt  = c1.number_input("", min_value=1, value=1,   key=f"{key_prefix}_ea", label_visibility="collapsed")
-            unit = c2.selectbox("",  ["day", "hr", "min"],     key=f"{key_prefix}_eu", label_visibility="collapsed")
+            amt  = c1.number_input("Email reminder amount", min_value=1, value=1,   key=f"{key_prefix}_ea", label_visibility="collapsed")
+            unit = c2.selectbox("Email reminder unit",      ["day", "hr", "min"],   key=f"{key_prefix}_eu", label_visibility="collapsed")
             overrides.append({"method": "email",  "minutes": int(amt * unit_map[unit])})
     with col2:
         if st.checkbox("Pop-up reminder", key=f"{key_prefix}_popup_on"):
             c1, c2 = st.columns([1, 1])
-            amt  = c1.number_input("", min_value=1, value=30,  key=f"{key_prefix}_pa", label_visibility="collapsed")
-            unit = c2.selectbox("",  ["min", "hr", "day"],     key=f"{key_prefix}_pu", label_visibility="collapsed")
+            amt  = c1.number_input("Pop-up reminder amount", min_value=1, value=30, key=f"{key_prefix}_pa", label_visibility="collapsed")
+            unit = c2.selectbox("Pop-up reminder unit",      ["min", "hr", "day"],  key=f"{key_prefix}_pu", label_visibility="collapsed")
             overrides.append({"method": "popup",  "minutes": int(amt * unit_map[unit])})
     return {"useDefault": False, "overrides": overrides} if overrides else None
 

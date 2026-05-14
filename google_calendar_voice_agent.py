@@ -34,6 +34,21 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+def _log_api_call(method: str, **payload) -> None:
+    """Log the complete JSON payload sent to a Google API call.
+
+    `method` is a human-readable identifier like "calendar.events.insert".
+    All keyword arguments are serialized as the request payload — pass the
+    same kwargs you pass to the API method (e.g. calendarId, body, eventId).
+    """
+    logger.info(
+        "Google API call: %s\n%s",
+        method,
+        json.dumps(payload, indent=2, default=str, sort_keys=True),
+    )
+
+
 client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
 model_name = os.environ.get("LLM_MODEL_NAME", "gemini-2.5-flash")
 
@@ -349,16 +364,19 @@ def get_calendar_events(credentials, calendar_id, description: str) -> list:
     response_json = parse_json_response(response)
     logger.info(f"Events List Parameters: {response_json}")
 
+    list_kwargs = {
+        "calendarId": response_json["calendarId"],
+        "timeMin": response_json.get("timeMin"),
+        "timeMax": response_json.get("timeMax"),
+        "singleEvents": response_json.get("singleEvents", False),
+        "orderBy": response_json.get("orderBy"),
+        "q": response_json.get("q"),
+    }
+    _log_api_call("calendar.events.list", **list_kwargs)
+
     try:
         service = build("calendar", "v3", credentials=credentials)
-        events_result = service.events().list(
-            calendarId=response_json["calendarId"],
-            timeMin=response_json.get("timeMin"),
-            timeMax=response_json.get("timeMax"),
-            singleEvents=response_json.get("singleEvents", False),
-            orderBy=response_json.get("orderBy"),
-            q=response_json.get("q")
-        ).execute()
+        events_result = service.events().list(**list_kwargs).execute()
         events = events_result.get("items", [])
         logger.info(f"Found {len(events)} event(s)")
     except HttpError as error:
@@ -374,13 +392,16 @@ def get_tasks(credentials, description: str) -> list:
     logger.info("Getting a list of Google Tasks")
     logger.debug(f"Input text: {description}")
 
+    list_kwargs = {
+        "tasklist": "@default",
+        "showCompleted": False,
+        "showDeleted": False,
+    }
+    _log_api_call("tasks.tasks.list", **list_kwargs)
+
     try:
         service = build("tasks", "v1", credentials=credentials)
-        tasks_result = service.tasks().list(
-            tasklist="@default",
-            showCompleted=False,
-            showDeleted=False
-        ).execute()
+        tasks_result = service.tasks().list(**list_kwargs).execute()
         tasks = tasks_result.get("items", [])
         logger.info(f"Found {len(tasks)} task(s) total")
 
@@ -470,7 +491,7 @@ def create_new_event(credentials, calendar_id, description: str, item_type: str 
         response_json["reminders"] = reminders_override
         logger.info(f"Reminders override applied: {reminders_override}")
 
-    logger.info(f"New calendar {item_type}: {response_json}")
+    _log_api_call("calendar.events.insert", calendarId=calendar_id, body=response_json)
 
     try:
         service = build("calendar", "v3", credentials=credentials)
@@ -523,7 +544,7 @@ def create_task(credentials, description: str) -> CalendarResponse:
     response = run_model(model_name, contents, config)
     response_json = parse_json_response(response)
 
-    logger.info(f"New task details: {response_json}")
+    _log_api_call("tasks.tasks.insert", tasklist="@default", body=response_json)
 
     try:
         service = build("tasks", "v1", credentials=credentials)
@@ -624,7 +645,7 @@ def create_annual_event(credentials, calendar_id, description: str) -> CalendarR
         event_body["eventType"] = "birthday"
         event_body["visibility"] = "private"  # required by the API for birthday event type
 
-    logger.info(f"Annual event body: {event_body}")
+    _log_api_call("calendar.events.insert", calendarId=calendar_id, body=event_body)
 
     try:
         service = build("calendar", "v3", credentials=credentials)
@@ -650,6 +671,8 @@ def delete_event_by_id(credentials, calendar_id, event_id: str) -> CalendarRespo
     """Delete an existing calendar event by ID."""
     logger.info("Deleting an existing calendar event by ID")
     logger.info(f"Event ID: {event_id}")
+
+    _log_api_call("calendar.events.delete", calendarId=calendar_id, eventId=event_id)
 
     try:
         service = build("calendar", "v3", credentials=credentials)
@@ -729,6 +752,7 @@ def delete_task(credentials, description: str, all: bool = False) -> CalendarRes
         tasks_to_delete = tasks if all else [tasks[0]]
         deleted_titles = []
         for task in tasks_to_delete:
+            _log_api_call("tasks.tasks.delete", tasklist="@default", task=task["id"])
             service.tasks().delete(tasklist="@default", task=task["id"]).execute()
             deleted_titles.append(task.get("title", task["id"]))
             logger.info(f"Task {task['id']} deleted")
@@ -836,7 +860,7 @@ def modify_event(credentials, calendar_id, description: str, reminders_override:
         response_json["reminders"] = reminders_override
         logger.info(f"Reminders override applied: {reminders_override}")
 
-    logger.info(f"Update calendar event: {response_json}")
+    _log_api_call("calendar.events.patch", calendarId=calendar_id, eventId=event["id"], body=response_json)
 
     try:
         service = build("calendar", "v3", credentials=credentials)
@@ -906,7 +930,7 @@ def modify_task(credentials, description: str) -> CalendarResponse:
     response = run_model(model_name, contents, config)
     response_json = parse_json_response(response)
 
-    logger.info(f"Task update payload: {response_json}")
+    _log_api_call("tasks.tasks.patch", tasklist="@default", task=task["id"], body=response_json)
 
     try:
         service = build("tasks", "v1", credentials=credentials)
