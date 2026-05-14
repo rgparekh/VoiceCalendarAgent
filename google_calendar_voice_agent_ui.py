@@ -139,6 +139,32 @@ _CSS = """
     background: #ea4335;
 }
 
+/* ── Compact toolbar buttons (Clear / Mic / Stop / Send) ─────────── */
+.st-key-btn_clear button,
+.st-key-btn_mic   button,
+.st-key-btn_stop  button,
+.st-key-btn_send  button {
+    min-height: 32px !important;
+    height: 32px !important;
+    padding: 0 0.6rem !important;
+    font-size: 0.8rem !important;
+    line-height: 1 !important;
+}
+
+/* ── Mic / Stop button: soft red (keeps emoji glyph legible) ─────── */
+.st-key-btn_mic  button,
+.st-key-btn_stop button {
+    background-color: #fdecea !important;
+    border-color: #f5b7b1 !important;
+    color: #c5221f !important;
+}
+.st-key-btn_mic  button:hover,
+.st-key-btn_stop button:hover {
+    background-color: #fadbd8 !important;
+    border-color: #ea4335 !important;
+    color: #c5221f !important;
+}
+
 /* ── Upcoming event cards ────────────────────────────────────────── */
 .event-card {
     border: 1px solid #e8eaed;
@@ -384,10 +410,10 @@ def show_chat_page(creds):
     # ── Toolbar: clear · recording status · mic/stop · send ─────────
     is_recording = st.session_state[rec_key]
 
-    col_clear, col_recind, col_mic, col_send = st.columns([1, 3, 1, 1])
+    col_clear, col_recind, col_mic, col_send = st.columns([2, 3, 1, 1], vertical_alignment="center")
 
     with col_clear:
-        if st.button("✕", help="Clear input", key="btn_clear", use_container_width=True):
+        if st.button("Clear command", help="Clear the input box", key="btn_clear", use_container_width=True):
             st.session_state[pending_key] = ""
             st.rerun()
 
@@ -416,9 +442,9 @@ def show_chat_page(creds):
                 st.rerun()
 
     with col_send:
-        send_disabled = is_recording
+        send_disabled = is_recording or not user_text.strip()
         if st.button("➤", help="Send", key="btn_send",
-                     type="primary", use_container_width=True,
+                     type="secondary", use_container_width=True,
                      disabled=send_disabled):
             final_text = user_text.strip()
             if final_text:
