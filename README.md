@@ -1,6 +1,6 @@
 # Google Calendar Voice Agent
 
-A conversational calendar assistant that understands **natural language and voice commands** to create, search, modify, and delete meetings, events, tasks, birthdays, and anniversaries in Google Calendar. Powered by the Google Gemini API, with a chat-style Streamlit UI and speech-to-text via OpenAI Whisper.
+A conversational calendar assistant that understands **natural language and voice commands** to create, search, modify, and delete meetings, events, tasks, birthdays, and anniversaries in Google Calendar. It uses the **Google Gemini API** by default and can optionally run on a **local Gemma model** (via [Ollama](https://ollama.com/)) when launched with `--local` — with a chat-style Streamlit UI and speech-to-text via OpenAI Whisper.
 
 ---
 
@@ -112,7 +112,9 @@ Reminders can be set via the **🔔 Set reminders** panel in the UI, or describe
   - **Google Tasks API** enabled
   - An **OAuth consent screen** configured
   - An **OAuth 2.0 Client ID** of type **Desktop app** — download as `credentials.json`
-- A **Gemini API key** from [Google AI Studio](https://aistudio.google.com/app/apikey)
+- **A language model:**
+  - **Cloud (default):** A **Gemini API key** from [Google AI Studio](https://aistudio.google.com/app/apikey). Set `GOOGLE_API_KEY` in your `.env` file.
+  - **Local (optional, `--local` flag):** [Ollama](https://ollama.com/) running with a Gemma 4 model pulled (e.g. `ollama pull gemma4:27b`). Runs fully offline, free, and private.
 - A microphone (for voice input)
 
 ---
@@ -146,27 +148,69 @@ The first time you use voice input, the Whisper `medium` model weights (~460 MB)
 Create a `.env` file in the project root:
 
 ```env
+# Required for the default Gemini API backend
 GOOGLE_API_KEY=your-gemini-api-key
+
+# Gemini model to use (optional; defaults to gemini-2.5-flash)
 LLM_MODEL_NAME=gemini-2.5-flash
+
+# Optional local-model overrides (only used with --local)
+# LOCAL_MODEL_NAME=gemma4          # Ollama model family/name to match (prefix)
+# OLLAMA_HOST=http://localhost:11434
 ```
 
-Load it before starting the app:
+The `.env` file is loaded automatically on startup (via `python-dotenv`) — no manual `export` needed.
+
+**5. (Optional) Set up a local Gemma model**
+
+To run without the Gemini API, install [Ollama](https://ollama.com/) and pull a Gemma 4 model:
 
 ```bash
-export $(cat .env | grep -v '^#' | xargs)
+ollama pull gemma4:27b
 ```
+
+Then start the agent with `--local` (CLI) or set `USE_LOCAL_GEMMA=true` in `.env` for the Streamlit UI. The first request after startup is slower while Ollama loads the model into memory; subsequent requests are fast.
 
 Place `credentials.json` (downloaded from Google Cloud Console) in the project root.
 
 > `.env` and `credentials.json` are listed in `.gitignore` and will never be committed.
 
-**5. Run the app**
+**6. Run the app**
 
 ```bash
+# Default — Gemini API
 streamlit run google_calendar_voice_agent_ui.py
+
+# Local Gemma model (requires Ollama running with a Gemma 4 model)
+USE_LOCAL_GEMMA=true streamlit run google_calendar_voice_agent_ui.py
 ```
 
 A browser window opens. On first use, a Google sign-in prompt appears and `token.json` is saved locally for subsequent sessions.
+
+---
+
+## Model Backend
+
+All language-model calls funnel through a single `run_model()` function. The active backend is chosen at startup:
+
+1. **Gemini API (default).** Uses `LLM_MODEL_NAME` (default `gemini-2.5-flash`) and requires `GOOGLE_API_KEY` in `.env`. The client is created lazily on the first request.
+2. **Local Gemma (`--local`).** Pass `--local` on the command line (CLI) or set `USE_LOCAL_GEMMA=true` in `.env` (Streamlit UI). The agent queries Ollama for a model whose name or family prefix matches `LOCAL_MODEL_NAME` (default `gemma4`) — matching any installed Gemma 4 model regardless of size. Structured (JSON-schema) output is enforced via Ollama's `format` parameter.
+
+```bash
+# CLI — use local model
+python google_calendar_voice_agent.py --local
+
+# Streamlit UI — use local model
+USE_LOCAL_GEMMA=true streamlit run google_calendar_voice_agent_ui.py
+```
+
+| Environment variable | Purpose | Default |
+|----------------------|---------|---------|
+| `GOOGLE_API_KEY` | Gemini API key (required for default backend) | — |
+| `LLM_MODEL_NAME` | Gemini model name | `gemini-2.5-flash` |
+| `LOCAL_MODEL_NAME` | Ollama model family/name prefix (used with `--local`) | `gemma4` |
+| `OLLAMA_HOST` | Ollama server URL | `http://localhost:11434` |
+| `USE_LOCAL_GEMMA` | Set to `true` to enable local backend in Streamlit | `false` |
 
 ---
 
@@ -197,7 +241,7 @@ Shows your next 7 calendar events with title, time, location, and a direct link 
 | File | Role |
 |------|------|
 | `google_calendar_voice_agent_ui.py` | Streamlit chat UI, OAuth flow, voice recording widget |
-| `google_calendar_voice_agent.py` | Agent logic: LLM classification, routing, and Google API calls |
+| `google_calendar_voice_agent.py` | Agent logic: LLM backend selection (Gemini API default, local Gemma via `--local`), classification, routing, and Google API calls |
 | `voice_input.py` | Microphone recording (`sounddevice`) and Whisper transcription (`faster-whisper`) |
 | `requirements.txt` | Python dependencies |
 | `.gitignore` | Excludes secrets, tokens, and caches |
@@ -220,6 +264,12 @@ The `medium` model (~460 MB) is downloaded once to `~/.cache/huggingface/`. Afte
 
 **Scope changes**
 If you modify the OAuth scopes in code, delete `token.json` and re-authenticate.
+
+**Local model not working (`--local`)**
+Confirm Ollama is running and a Gemma 4 model is installed: `ollama list`. The model's name or family must match `LOCAL_MODEL_NAME` (default `gemma4`). Check the startup logs for `Local model found: '...'`. If no match is found, the agent raises an error — it will not silently fall back to the Gemini API when `--local` is specified.
+
+**First local response is slow**
+On the first request, Ollama loads the model (several GB) into memory. This is a one-time cost per server session; later requests are fast.
 
 ---
 

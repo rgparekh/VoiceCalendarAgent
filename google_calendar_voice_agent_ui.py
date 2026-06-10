@@ -371,7 +371,15 @@ def show_chat_page(creds):
     # ── Chat history ────────────────────────────────────────────────
     if not st.session_state.messages:
         owner = st.session_state.get("calendar_owner_name", "")
-        greeting = f"Hi{' ' + owner.split()[0] if owner else ''}! I'm your calendar assistant. Tell me what you'd like to do — for example:\n\n• *Schedule a sync with Alice (alice@co.com) Friday at 2 PM*\n• *Move my dentist appointment to Thursday at 10 AM*\n• *Add a task to submit the Q1 report by Friday*\n• *Delete the team standup tomorrow*"
+        name = (" " + owner.split()[0]) if owner else ""
+        greeting = (
+            f"Hi{name}! I'm your calendar assistant. "
+            "Tell me what you'd like to do — for example:<br><br>"
+            "• Schedule a sync with Alice (alice@co.com) Friday at 2 PM<br>"
+            "• Move my dentist appointment to Thursday at 10 AM<br>"
+            "• Add a task to submit the Q1 report by Friday<br>"
+            "• Delete the team standup tomorrow"
+        )
         _append_agent(greeting)
 
     _render_chat()
@@ -407,24 +415,25 @@ def show_chat_page(creds):
         key=input_key,
     )
 
-    # ── Toolbar: clear · recording status · mic/stop · send ─────────
+    # ── Toolbar: clear · mic/stop · send ────────────────────────────
     is_recording = st.session_state[rec_key]
 
-    col_clear, col_recind, col_mic, col_send = st.columns([2, 3, 1, 1], vertical_alignment="center")
+    # Recording indicator sits above the button row so it never disturbs
+    # button alignment.
+    if is_recording:
+        st.markdown(
+            '<span class="rec-indicator">'
+            '<span class="rec-dot"></span>Recording…'
+            '</span>',
+            unsafe_allow_html=True,
+        )
+
+    col_clear, col_mic, col_send = st.columns([6, 1, 1], vertical_alignment="center")
 
     with col_clear:
         if st.button("Clear command", help="Clear the input box", key="btn_clear", use_container_width=True):
             st.session_state[pending_key] = ""
             st.rerun()
-
-    with col_recind:
-        if is_recording:
-            st.markdown(
-                '<span class="rec-indicator">'
-                '<span class="rec-dot"></span>Recording…'
-                '</span>',
-                unsafe_allow_html=True,
-            )
 
     with col_mic:
         if not is_recording:
@@ -442,17 +451,21 @@ def show_chat_page(creds):
                 st.rerun()
 
     with col_send:
-        send_disabled = is_recording or not user_text.strip()
-        if st.button("➤", help="Send", key="btn_send",
-                     type="secondary", use_container_width=True,
-                     disabled=send_disabled):
-            final_text = user_text.strip()
-            if final_text:
-                _handle_submit(creds, final_text, st.session_state.get("_reminders"))
-                st.session_state[pending_key] = ""
-                st.rerun()
+        send_disabled = is_recording
+        send_clicked = st.button("➤", help="Send", key="btn_send",
+                                 type="secondary", use_container_width=True,
+                                 disabled=send_disabled)
 
     st.markdown('</div>', unsafe_allow_html=True)
+
+    # Handle submit outside the columns so the spinner never expands a column
+    # and shifts the button alignment.
+    if send_clicked:
+        final_text = user_text.strip()
+        if final_text:
+            _handle_submit(creds, final_text, st.session_state.get("_reminders"))
+            st.session_state[pending_key] = ""
+            st.rerun()
 
 
 def show_home_page(creds):

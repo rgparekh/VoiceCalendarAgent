@@ -1,8 +1,12 @@
 # Agentic workflow to manage Google calendar meetings, events, and tasks
 
+import argparse
 import os
 import json
 import logging
+from types import SimpleNamespace
+
+import requests
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -49,8 +53,80 @@ def _log_api_call(method: str, **payload) -> None:
     )
 
 
-client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
+# --------------------------------------------------------------
+# LLM backend selection
+#
+# Default: Gemini API (cloud).  Set LLM_MODEL_NAME in .env to choose
+# the model (e.g. "gemini-2.5-flash", "gemma-4-31B-it").
+# Pass --local on the command line to use a locally-installed Gemma
+# model served by Ollama instead.
+# --------------------------------------------------------------
+
+# Cloud model — override via LLM_MODEL_NAME in .env
 model_name = os.environ.get("LLM_MODEL_NAME", "gemini-2.5-flash")
+
+OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+# Which locally-installed model family/name to prefer (matched by prefix).
+LOCAL_MODEL_NAME = os.environ.get("LOCAL_MODEL_NAME", "gemma4")
+
+# Set to True by --local CLI flag; controls which backend run_model() uses.
+_use_local: bool = False
+
+# Lazily-resolved local model name (populated on first --local call).
+_local_model_cache: Optional[str] = None
+
+# Lazily-initialised Gemini client.
+_genai_client = None
+
+
+def get_genai_client():
+    """Return a cached Gemini API client, creating it on first use."""
+    global _genai_client
+    if _genai_client is None:
+        api_key = os.environ.get("GOOGLE_API_KEY")
+        if not api_key:
+            raise RuntimeError(
+                "GOOGLE_API_KEY is not set. Add it to your .env file."
+            )
+        _genai_client = genai.Client(api_key=api_key)
+    return _genai_client
+
+
+def _detect_local_model():
+    """Return the name of a locally-installed Gemma model via Ollama, or None.
+
+    Queries the Ollama tag list and returns the first model whose name or
+    family matches LOCAL_MODEL_NAME (e.g. "gemma4").
+    """
+    try:
+        resp = requests.get(f"{OLLAMA_HOST}/api/tags", timeout=2)
+        resp.raise_for_status()
+        models = resp.json().get("models", [])
+    except Exception as exc:
+        logger.info("No local Ollama server detected (%s).", exc)
+        return None
+    for m in models:
+        name = m.get("name", "")
+        family = (m.get("details") or {}).get("family", "")
+        if name.startswith(LOCAL_MODEL_NAME) or family.startswith(LOCAL_MODEL_NAME):
+            logger.info("Local model found: '%s'.", name)
+            return name
+    logger.info("No local '%s' model found in Ollama.", LOCAL_MODEL_NAME)
+    return None
+
+
+def _get_local_model() -> str:
+    """Return the cached local model name, detecting it on first call."""
+    global _local_model_cache
+    if _local_model_cache is None:
+        _local_model_cache = _detect_local_model()
+        if _local_model_cache is None:
+            raise RuntimeError(
+                f"No local '{LOCAL_MODEL_NAME}' model found in Ollama. "
+                "Ensure Ollama is running and the model is installed, "
+                "or omit --local to use the Gemini API."
+            )
+    return _local_model_cache
 
 # --------------------------------------------------------------
 # Step 1: Define the data models for each stage
@@ -227,14 +303,78 @@ def _is_in_past(dt_str: str) -> bool:
         return False
 
 
-# Invoke the GenAI (Gemini) model and return its response
-def run_model(model_name, contents, config):
-    response = client.models.generate_content(
+# --------------------------------------------------------------
+# Model invocation
+#
+# All LLM calls funnel through run_model(). By default it uses the
+# Gemini API; pass --local on the command line to use Ollama instead.
+# --------------------------------------------------------------
+
+def _contents_to_messages(config, contents):
+    """Convert Gemini-style (config, contents) into Ollama chat messages."""
+    messages = []
+    system_instruction = getattr(config, "system_instruction", None)
+    if system_instruction:
+        messages.append({"role": "system", "content": str(system_instruction)})
+    for content in contents:
+        role = getattr(content, "role", "user") or "user"
+        role = "assistant" if role == "model" else "user"
+        parts = getattr(content, "parts", None) or []
+        text = "".join(getattr(p, "text", "") or "" for p in parts)
+        messages.append({"role": role, "content": text})
+    return messages
+
+
+def _wrap_text_response(text):
+    """Wrap raw text so it matches the shape of a Gemini API response.
+
+    parse_json_response() reads response.candidates[0].content.parts[0].text,
+    so the local backend returns an object with that same structure.
+    """
+    part = SimpleNamespace(text=text)
+    content = SimpleNamespace(parts=[part])
+    candidate = SimpleNamespace(content=content)
+    return SimpleNamespace(candidates=[candidate])
+
+
+def run_local_model(local_model, contents, config):
+    """Invoke the local Gemma model via the Ollama chat API."""
+    payload = {
+        "model": local_model,
+        "messages": _contents_to_messages(config, contents),
+        "stream": False,
+        "options": {"temperature": 0},
+    }
+
+    # Constrain output to the requested JSON schema when one is provided.
+    response_schema = getattr(config, "response_schema", None)
+    if response_schema is not None and hasattr(response_schema, "model_json_schema"):
+        payload["format"] = response_schema.model_json_schema()
+    elif getattr(config, "response_mime_type", None) == "application/json":
+        payload["format"] = "json"
+
+    resp = requests.post(f"{OLLAMA_HOST}/api/chat", json=payload, timeout=180)
+    resp.raise_for_status()
+    text = (resp.json().get("message") or {}).get("content", "")
+    if not text.strip():
+        raise ValueError("Local model returned an empty response.")
+    return _wrap_text_response(text)
+
+
+def run_gemini_model(model_name, contents, config):
+    """Invoke the Gemini cloud API and return its response."""
+    return get_genai_client().models.generate_content(
         model=model_name,
         contents=contents,
-        config=config
+        config=config,
     )
-    return response
+
+
+# Invoke the LLM: Gemini API by default, local Ollama when --local is set.
+def run_model(model_name, contents, config):
+    if _use_local:
+        return run_local_model(_get_local_model(), contents, config)
+    return run_gemini_model(model_name, contents, config)
 
 def parse_json_response(response) -> dict:
     """Parse JSON from a model response, handling markdown code fences and trailing text."""
@@ -1013,6 +1153,24 @@ def process_calendar_request(credentials, calendar_id, user_input: str, reminder
 
 def main():
     """Run the calendar agent interactively from the command line."""
+    global _use_local
+
+    parser = argparse.ArgumentParser(description="Google Calendar Voice Agent")
+    parser.add_argument(
+        "--local",
+        action="store_true",
+        help=(
+            f"Use locally installed Gemma model via Ollama "
+            f"(model prefix: {LOCAL_MODEL_NAME}) instead of the Gemini API"
+        ),
+    )
+    args = parser.parse_args()
+    _use_local = args.local
+
+    if _use_local:
+        print(f"LLM backend: local Ollama (model prefix: {LOCAL_MODEL_NAME})")
+    else:
+        print(f"LLM backend: Gemini API (model: {model_name})")
 
     creds = None
     if os.path.exists("token.json"):
